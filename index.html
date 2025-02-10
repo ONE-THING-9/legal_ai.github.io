@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Get Summary Page</title>
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Include data.js which contains districts and police station mapping -->
+  <script src="data.js"></script>
+  <!-- Add marked.js for markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    label, select, input, textarea, button {
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    /* Add styles for markdown content */
+    .markdown-content {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 5px;
+      border: 1px solid #dee2e6;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+    .markdown-content h1,
+    .markdown-content h2,
+    .markdown-content h3 {
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+    }
+    .markdown-content p {
+      margin-bottom: 1rem;
+    }
+    .markdown-content pre {
+      background: #f1f1f1;
+      padding: 1rem;
+      border-radius: 4px;
+    }
+    /* Add dot progress styles */
+    .loading-spinner {
+      display: inline-block;
+      margin: 10px;
+      text-align: center;
+    }
+    .dot-progress {
+      display: inline-block;
+    }
+    .dot-progress::after {
+      display: inline-block;
+      animation: dots 1.5s steps(4, end) infinite;
+      content: '';
+      width: 0;
+    }
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60% { content: '...'; }
+      80%, 100% { content: '....'; }
+    }
+    .loading-text {
+      color: #6c757d;
+      font-size: 0.9em;
+      display: inline-block;
+    }
+    
+    /* Style for disabled buttons during loading */
+    .btn.loading {
+      opacity: 0.65;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="row">
+      <div class="col">
+        <img src="./resources/logo.png" alt="Logo" style="width: 200px;">
+      </div>
+    </div>
+    <!-- Row 1: Year and District -->
+    <div class="row">
+      <div class="col-md-6">
+        <label for="year">Year</label>
+        <select id="year" class="form-control">
+          <option value="">Select Year</option>
+          <script>
+            for (let y = 2015; y <= 2025; y++) {
+              document.write(`<option value="${y}">${y}</option>`);
+            }
+          </script>
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label for="district">District</label>
+        <select id="district" class="form-control">
+          <option value="">Select District</option>
+          <!-- Options will be populated from data.js -->
+        </select>
+      </div>
+    </div>
+    <!-- Row 2: Police Station and FIR -->
+    <div class="row">
+      <div class="col-md-6">
+        <label for="policeStation">Police Station</label>
+        <select id="policeStation" class="form-control">
+          <option value="">Select Police Station</option>
+          <!-- Options will be populated based on the selected district -->
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label for="numberInput">FIR NUMBER</label>
+        <input type="number" id="numberInput" class="form-control" placeholder="Enter FIR NUMBER">
+      </div>
+    </div>
+    <!-- Row 3: Buttons -->
+    <div class="row">
+      <div class="col">
+        <button id="getSummary" class="btn btn-primary">Get Summary</button>
+        <button id="downloadPdf" class="btn btn-success" disabled>Download PDF</button>
+        <button id="makeDraft" class="btn btn-secondary" disabled>Make Draft</button>
+        <button id="getRelevantCase" class="btn btn-info" disabled>Get Relevant Case</button>
+      </div>
+    </div>
+    <!-- Row 4: Summary Text -->
+    <div class="row">
+      <div class="col">
+        <div id="summaryContent" class="markdown-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Populate the District dropdown from the districts array in data.js.
+    document.addEventListener('DOMContentLoaded', function() {
+      const districtSelect = document.getElementById('district');
+      if (typeof districts !== 'undefined') {
+        districts.forEach(d => {
+          const option = document.createElement('option');
+          option.value = d;
+          option.textContent = d;
+          districtSelect.appendChild(option);
+        });
+      } else {
+        console.error("District data not found.");
+      }
+    });
+    
+    // When the District selection changes, update the Police Station dropdown.
+    document.getElementById('district').addEventListener('change', function() {
+      const district = this.value;
+      const policeSelect = document.getElementById('policeStation');
+      // Clear previous options:
+      policeSelect.innerHTML = '<option value="">Select Police Station</option>';
+      if (district && typeof haryana_police_stations !== 'undefined' && haryana_police_stations[district]) {
+        haryana_police_stations[district].forEach(ps => {
+          const option = document.createElement('option');
+          option.value = ps;
+          option.textContent = ps;
+          policeSelect.appendChild(option);
+        });
+      }
+    });
+
+    // Global variables to store API response values.
+    let summaryResponse = "";
+    let pdfLinkResponse = "";
+    
+    // Element references.
+    const getSummaryBtn = document.getElementById('getSummary');
+    const downloadPdfBtn = document.getElementById('downloadPdf');
+    const makeDraftBtn = document.getElementById('makeDraft');
+    const getRelevantCaseBtn = document.getElementById('getRelevantCase');
+    
+    // Validate inputs.
+    function validateInputs() {
+      const year = document.getElementById('year').value;
+      const district = document.getElementById('district').value;
+      const policeStation = document.getElementById('policeStation').value;
+      const numberVal = document.getElementById('numberInput').value;
+      return year && district && policeStation && numberVal !== "" && Number.isInteger(Number(numberVal));
+    }
+    
+    // Enable or disable the Get Summary button based on inputs.
+    document.querySelectorAll('#year, #district, #policeStation, #numberInput').forEach(el => {
+      el.addEventListener('change', () => {
+        getSummaryBtn.disabled = !validateInputs();
+      });
+      el.addEventListener('input', () => {
+        getSummaryBtn.disabled = !validateInputs();
+      });
+    });
+    
+    // Add function to show/hide loading state
+    function setLoadingState(isLoading) {
+      const buttons = document.querySelectorAll('.btn');
+      if (isLoading) {
+        buttons.forEach(btn => btn.classList.add('loading'));
+      } else {
+        buttons.forEach(btn => btn.classList.remove('loading'));
+      }
+    }
+
+    // Add loading spinner to content area
+    function appendLoadingSpinner() {
+      const spinner = document.createElement('div');
+      spinner.classList.add('loading-spinner');
+      spinner.innerHTML = `
+        <div class="loading-text">Processing</div>
+        <div class="dot-progress"></div>
+      `;
+      document.getElementById('summaryContent').appendChild(spinner);
+      return spinner;
+    }
+    
+    // Handler for Get Summary button.
+    getSummaryBtn.addEventListener('click', async () => {
+      setLoadingState(true);
+      const loadingSpinner = appendLoadingSpinner();
+      
+      // Prepare payload as expected by your API.
+      const data = {
+        year: document.getElementById('year').value,
+        district: document.getElementById('district').value,
+        police_station: document.getElementById('policeStation').value,
+        fir_number: document.getElementById('numberInput').value
+      };
+      
+      try {
+        const response = await fetch('http://localhost:8000/get-summary', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.statusText}`);
+        }
+        const result = await response.json();
+        if (result.status === "success" && result.data) {
+          loadingSpinner.remove();
+          summaryResponse = result.data.summary || "No summary returned.";
+          pdfLinkResponse = result.data.pdf_link || "";
+          
+          // Replace textarea update with markdown rendering
+          const summaryContentEl = document.getElementById('summaryContent');
+          summaryContentEl.innerHTML = marked.parse(summaryResponse);
+          
+          // Enable related buttons after a successful summary API call
+          downloadPdfBtn.disabled = false;
+          makeDraftBtn.disabled = false;
+          getRelevantCaseBtn.disabled = false;
+        } else {
+          loadingSpinner.remove();
+          const summaryContentEl = document.getElementById('summaryContent');
+          summaryContentEl.innerHTML = `<p class="text-danger">Error: ${result.message || "Unknown error occurred."}</p>`;
+        }
+      } catch (error) {
+        loadingSpinner.remove();
+        const summaryContentEl = document.getElementById('summaryContent');
+        summaryContentEl.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+      } finally {
+        setLoadingState(false);
+      }
+    });
+    
+    // Handler for Download PDF button.
+    downloadPdfBtn.addEventListener('click', () => {
+      if (pdfLinkResponse) {
+        // Open PDF in a new tab instead of downloading
+        window.open(pdfLinkResponse, '_blank');
+      } else {
+        alert("No PDF link available.");
+      }
+    });
+    
+    // Handler for Make Draft button.
+    makeDraftBtn.addEventListener('click', () => {
+      // Save details in sessionStorage for the draft page.
+      sessionStorage.setItem('draft_summary', summaryResponse);
+      sessionStorage.setItem('draft_pdf_link', pdfLinkResponse);
+      window.open('draft.html', '_blank');
+    });
+    
+    // Handler for Get Relevant Case button.
+    getRelevantCaseBtn.addEventListener('click', () => {
+      const previousDraft = null; // Replace with an actual value if available.
+      sessionStorage.setItem('search_summary', summaryResponse);
+      sessionStorage.setItem('search_pdf_link', pdfLinkResponse);
+      sessionStorage.setItem('search_previous_draft', previousDraft);
+      window.open('search.html', '_blank');
+    });
+  </script>
+</body>
+</html>
