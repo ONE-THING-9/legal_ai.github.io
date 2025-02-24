@@ -5,13 +5,15 @@
   <title>Draft Chat</title>
   <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons for enhanced button design -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
   <!-- Add marked.js for markdown parsing -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     body {
       margin-top: 0;
       font-family: Arial, sans-serif;
-      background-color: #fff;
+      background-color: #f8f9fa;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -22,13 +24,6 @@
       flex: 1;
       margin-bottom: 20px;
     }
-    .chat-header {
-      background-color: #4267B2;
-      color: white;
-      padding: 15px;
-      text-align: center;
-      font-size: 1.25rem;
-    }
     .chat-area {
       flex: 1;
       padding: 15px;
@@ -36,6 +31,8 @@
       flex-direction: column;
       gap: 12px;
       margin-bottom: 20px;
+      overflow-y: auto;
+      background-color: #fafafa;
     }
     .chat-input {
       padding: 10px;
@@ -47,16 +44,27 @@
     }
     .input-group .form-control {
       border-radius: 50px 0 0 50px;
+      border-color: #4267B2;
     }
     .input-group .btn {
       border-radius: 0 50px 50px 0;
     }
+    /* Add some margin between send and clear buttons */
+    .input-group .btn + .btn {
+      margin-left: 5px;
+    }
     .chat-bubble {
-      padding: 10px 15px;
-      border-radius: 20px;
+      padding: 15px 20px;
+      border-radius: 25px;
       margin-bottom: 10px;
       max-width: 70%;
       word-wrap: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      opacity: 0;
+      animation: fadeIn 0.5s forwards;
+    }
+    @keyframes fadeIn {
+      to { opacity: 1; }
     }
     .bot-message {
       background-color: #f1f0f0;
@@ -136,9 +144,50 @@
       opacity: 0.65;
       pointer-events: none;
     }
+
+    /* Add logout button styles */
+    .logout-btn {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 8px 15px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+    
+    .logout-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+      background-color: #dc3545;
+      color: white;
+    }
+
+    /* Custom styles for buttons in chat input */
+    .chat-input .btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .chat-input .btn:hover {
+      transform: scale(1.1);
+      transition: transform 0.2s;
+    }
   </style>
 </head>
 <body>
+  <!-- Add logout button -->
+  <button id="logoutBtn" class="btn btn-outline-danger logout-btn">
+    <i class="bi bi-box-arrow-right"></i> Logout
+  </button>
+
   <div class="container">
     <!-- Add logo section -->
     <div class="row">
@@ -160,7 +209,10 @@
     <div class="chat-input">
       <div id="inputGroup" class="input-group">
         <input id="userMessage" type="text" class="form-control" placeholder="Type your message..." aria-label="User message">
-        <button id="sendMessage" class="btn btn-primary">&rarr;</button>
+        <button id="sendMessage" class="btn btn-primary"><i class="bi bi-send"></i></button>
+        <button id="clearChat" class="btn btn-outline-danger" title="clear the chat">
+          <i class="bi bi-trash"></i>
+        </button>
       </div>
     </div>
   </div>
@@ -168,6 +220,30 @@
   <!-- Bootstrap 5 Bundle with Popper -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    // Update the session checks at the start of script
+    const sessionId = localStorage.getItem('session_id');
+    const userId = localStorage.getItem('user_id');
+    const chatSessionId = localStorage.getItem('chat_session_id');
+
+    // Check both authentication session and chat session
+    if (!sessionId || !userId) {
+        window.location.href = 'login.html';
+        throw new Error('No authentication session');
+    }
+
+    if (!chatSessionId) {
+        window.location.href = 'sessions.html';
+        throw new Error('No chat session');
+    }
+
+    // Add session_id to all fetch calls
+    function addSessionHeader(headers = {}) {
+      return {
+        ...headers,
+        'Session-ID': sessionId
+      };
+    }
+
     // Update the session storage keys to match what index.html is storing
     const pdf_link = sessionStorage.getItem('draft_pdf_link');
     const summary = sessionStorage.getItem('draft_summary');
@@ -175,6 +251,7 @@
     const loadingMessageEl = document.getElementById('loadingMessage');
     const userMessageInput = document.getElementById('userMessage');
     const sendMessageBtn = document.getElementById('sendMessage');
+    const clearChatBtn = document.getElementById('clearChat');
 
     // Global variable to store the previous draft.
     let previousDraft = "";
@@ -232,6 +309,15 @@
       return spinner;
     }
 
+    // Update the payload creation to use chat_session_id
+    function createPayload(userMessage = null) {
+      return {
+        user_message: userMessage,
+        session_id: chatSessionId, // Use chat_session_id instead of session_id
+        user_id: userId
+      };
+    }
+
     // Load the initial draft by calling the get-draft API.
     function loadInitialDraft() {
       if (!pdf_link || !summary) {
@@ -241,13 +327,14 @@
       }
       
       setLoadingState(true);
-      const payload = { pdf_link, summary };
-      fetch('http://localhost:8000/get-draft', {
+      const payload = createPayload();
+
+      fetch('https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/get-draft', {
         method: 'POST',
-        headers: {
+        headers: addSessionHeader({
           'Content-Type': 'application/json',
           'accept': 'application/json'
-        },
+        }),
         body: JSON.stringify(payload)
       })
       .then(response => {
@@ -257,10 +344,31 @@
         return response.json();
       })
       .then(result => {
-        if (result.status === "success" && result.data) {
-          const draftText = result.data.draft || "No draft returned.";
-          appendMessage(draftText, "bot");
-          previousDraft = draftText;  // Save initial draft as previousDraft
+        if (result.status === "success") {
+          if (result.message && Array.isArray(result.message)) {
+            // Handle the list of message pairs
+            result.message.forEach(messagePair => {
+              const [userMessage, botResponse] = messagePair;
+              
+              // Add user message if it exists
+              if (userMessage) {
+                appendMessage(userMessage, "user");
+              }
+              
+              // Add bot response if it exists
+              if (botResponse) {
+                appendMessage(botResponse, "bot");
+              }
+            });
+          } else if (result.data && result.data.chat_draft) {
+            // Handle single message response
+            const draftText = result.data.chat_draft;
+            appendMessage(draftText, "bot");
+            previousDraft = draftText;
+            sessionStorage.setItem('latest_draft', draftText);
+          } else {
+            appendMessage("No draft content available.", "bot");
+          }
         } else {
           appendMessage("Error: " + (result.message || "Unknown error occurred."), "bot");
         }
@@ -276,25 +384,21 @@
       });
     }
 
-    // Send the user message to the chat-draft-api using POST.
+    // Send the user message to the get-draft API
     function sendChatMessage(messageText) {
       appendMessage(messageText, "user");
       
       setLoadingState(true);
       const loadingSpinner = appendLoadingSpinner();
       
-      const payload = {
-        user_message: messageText,
-        summary: summary,
-        previous_draft: previousDraft || ""
-      };
+      const payload = createPayload(messageText);
       
-      fetch('http://localhost:8000/chat-draft-api', {
+      fetch('https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/get-draft', {
         method: 'POST',
-        headers: {
+        headers: addSessionHeader({
           'Content-Type': 'application/json',
           'accept': 'application/json'
-        },
+        }),
         body: JSON.stringify(payload)
       })
       .then(response => {
@@ -309,6 +413,7 @@
           loadingSpinner.remove();
           appendMessage(reply, "bot");
           previousDraft = reply;
+          sessionStorage.setItem('latest_draft', reply);
         } else {
           loadingSpinner.remove();
           appendMessage("Error: " + (result.message || "Unknown error occurred."), "bot");
@@ -323,23 +428,90 @@
       });
     }
 
-    // Set up event listeners for the send button and Enter key.
+    // Add event listener for input changes to control send button state
+    userMessageInput.addEventListener('input', function() {
+      const messageText = this.value.trim();
+      sendMessageBtn.disabled = messageText === '';
+      // Optional: Add visual feedback with opacity
+      sendMessageBtn.style.opacity = messageText === '' ? '0.5' : '1';
+    });
+
+    // Update the initial state of the send button
+    sendMessageBtn.disabled = true;
+    sendMessageBtn.style.opacity = '0.5';
+
+    // Update the send button click handler to include the disabled check
     sendMessageBtn.addEventListener('click', function() {
       const messageText = userMessageInput.value.trim();
-      if (messageText === "") return;
+      if (messageText === "" || this.disabled) return;
       sendChatMessage(messageText);
       userMessageInput.value = "";
       userMessageInput.focus();
+      // Reset button state after sending
+      this.disabled = true;
+      this.style.opacity = '0.5';
     });
-    userMessageInput.addEventListener('keypress', function(event) {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        sendMessageBtn.click();
-      }
+
+    // Clear chat button event listener.
+    clearChatBtn.addEventListener('click', function() {
+      // Call the delete-draft-conversation API.
+      fetch(`https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/delete-draft-conversation?user_id=${userId}&session_id=${chatSessionId}`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json'
+        }
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Server error: " + response.statusText);
+        }
+        return response.json();
+      })
+      .then(result => {
+        if (result.status === "success") {
+          console.log("Chat cleared successfully.");
+          // Clear the chat UI except the first bot message.
+          const chatBubbles = chatArea.querySelectorAll('.chat-bubble');
+          chatBubbles.forEach((bubble, index) => {
+            if (index !== 0 || !bubble.classList.contains('bot-message')) {
+              bubble.remove();
+            }
+          });
+        } else {
+          console.error("Failed to clear chat:", result.message);
+        }
+      })
+      .catch(error => {
+        console.error("Error clearing chat:", error);
+      });
     });
 
     // Load the initial draft message when the page is ready.
     document.addEventListener('DOMContentLoaded', loadInitialDraft);
+
+    // Add logout functionality
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        const response = await fetch('https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/logout', {
+          method: 'POST',
+          headers: addSessionHeader()
+        });
+        
+        const result = await response.json();
+        if (result.status === "success") {
+          // Clear session storage and local storage
+          sessionStorage.clear();
+          localStorage.removeItem('session_id');
+          localStorage.removeItem('chat_session_id');
+          // Redirect to login page
+          window.location.href = 'login.html';
+        } else {
+          alert("Logout failed: " + result.message);
+        }
+      } catch (error) {
+        alert("Error during logout: " + error.message);
+      }
+    });
   </script>
 </body>
 </html>

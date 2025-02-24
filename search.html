@@ -5,44 +5,66 @@
   <title>Relevant Case Chat</title>
   <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons for enhanced button design -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
   <!-- Add marked.js for markdown parsing -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background-color: #fff;
       margin-top: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f8f9fa;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
     .container.chat-container {
       display: flex;
       flex-direction: column;
-      height: 80vh;
+      flex: 1;
+      margin-bottom: 20px;
     }
     .chat-area {
       flex: 1;
       padding: 15px;
-      overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 12px;
+      margin-bottom: 20px;
+      overflow-y: auto;
+      background-color: #fafafa;
     }
     .chat-input {
       padding: 10px;
       background-color: #fff;
       box-shadow: 0 -1px 3px rgba(0,0,0,0.1);
+      position: sticky;
+      bottom: 0;
+      background-color: white;
     }
     .input-group .form-control {
       border-radius: 50px 0 0 50px;
+      border-color: #4267B2;
     }
     .input-group .btn {
       border-radius: 0 50px 50px 0;
     }
+    /* Add some margin between send and clear buttons */
+    .input-group .btn + .btn {
+      margin-left: 5px;
+    }
     .chat-bubble {
-      padding: 10px 15px;
-      border-radius: 20px;
+      padding: 15px 20px;
+      border-radius: 25px;
       margin-bottom: 10px;
       max-width: 70%;
       word-wrap: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      opacity: 0;
+      animation: fadeIn 0.5s forwards;
+    }
+    @keyframes fadeIn {
+      to { opacity: 1; }
     }
     .bot-message {
       background-color: #f1f0f0;
@@ -89,7 +111,7 @@
       margin: 0.5rem 0;
       padding-left: 1.5rem;
     }
-    /* Add dot progress styles */
+    /* Replace loading spinner styles with dot progress styles */
     .loading-spinner {
       display: inline-block;
       margin: 10px;
@@ -122,9 +144,50 @@
       opacity: 0.65;
       pointer-events: none;
     }
+
+    /* Add logout button styles */
+    .logout-btn {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 8px 15px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+    
+    .logout-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+      background-color: #dc3545;
+      color: white;
+    }
+
+    /* Custom styles for buttons in chat input */
+    .chat-input .btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .chat-input .btn:hover {
+      transform: scale(1.1);
+      transition: transform 0.2s;
+    }
   </style>
 </head>
 <body>
+  <!-- Add logout button -->
+  <button id="logoutBtn" class="btn btn-outline-danger logout-btn">
+    <i class="bi bi-box-arrow-right"></i> Logout
+  </button>
+
   <div class="container">
     <!-- Add logo section -->
     <div class="row">
@@ -135,16 +198,21 @@
   </div>
 
   <div class="container chat-container">
+    <!-- Chat area for messages -->
     <div id="chatArea" class="chat-area">
       <div id="loadingMessage" class="loading-spinner">
         <div class="loading-text">Loading search results</div>
         <div class="dot-progress"></div>
       </div>
     </div>
+    <!-- Input area -->
     <div class="chat-input">
       <div id="inputGroup" class="input-group">
         <input id="userMessage" type="text" class="form-control" placeholder="Type your message..." aria-label="User message">
-        <button id="sendMessage" class="btn btn-primary">&rarr;</button>
+        <button id="sendMessage" class="btn btn-primary"><i class="bi bi-send"></i></button>
+        <button id="clearChat" class="btn btn-outline-danger" title="clear the chat">
+          <i class="bi bi-trash"></i>
+        </button>
       </div>
     </div>
   </div>
@@ -152,19 +220,40 @@
   <!-- Bootstrap 5 Bundle with Popper -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    // Update the session checks at the start of script
+    const sessionId = localStorage.getItem('session_id');
+    const userId = localStorage.getItem('user_id');
+    const chatSessionId = localStorage.getItem('chat_session_id');
+
+    // Check both authentication session and chat session
+    if (!sessionId || !userId) {
+        window.location.href = 'login.html';
+        throw new Error('No authentication session');
+    }
+
+    if (!chatSessionId) {
+        window.location.href = 'sessions.html';
+        throw new Error('No chat session');
+    }
+
+    // Add session_id to all fetch calls
+    function addSessionHeader(headers = {}) {
+      return {
+        ...headers,
+        'Session-ID': sessionId
+      };
+    }
+
+    const pdf_link = sessionStorage.getItem('draft_pdf_link');
+    const summary = sessionStorage.getItem('draft_summary');
     const chatArea = document.getElementById('chatArea');
     const loadingMessageEl = document.getElementById('loadingMessage');
     const userMessageInput = document.getElementById('userMessage');
     const sendMessageBtn = document.getElementById('sendMessage');
-    
-    // Global variable to hold the previous search result.
+    const clearChatBtn = document.getElementById('clearChat');
+
     let previousSearchResult = "";
-    
-    // Retrieve the required parameters from sessionStorage.
-    const search_summary = sessionStorage.getItem('search_summary');
-    const search_pdf_link = sessionStorage.getItem('search_pdf_link');
-    const search_previous_draft = sessionStorage.getItem('search_previous_draft') || null;
-    
+
     // Helper function to create a chat bubble.
     function createChatBubble(text, type) {
       const bubble = document.createElement('div');
@@ -181,14 +270,14 @@
       }
       return bubble;
     }
-    
+
     // Append a message to the chat area.
     function appendMessage(text, type) {
       const bubble = createChatBubble(text, type);
       chatArea.appendChild(bubble);
       chatArea.scrollTop = chatArea.scrollHeight;
     }
-    
+
     // Add function to show/hide loading state
     function setLoadingState(isLoading) {
       const inputGroup = document.getElementById('inputGroup');
@@ -205,7 +294,7 @@
         sendMessage.disabled = false;
       }
     }
-    
+
     // Add loading spinner to chat area
     function appendLoadingSpinner() {
       const spinner = document.createElement('div');
@@ -217,51 +306,49 @@
       chatArea.appendChild(spinner);
       return spinner;
     }
-    
-    // Load the initial search result by calling the chat-search-api.
+
+    function createPayload(userMessage = null) {
+      return {
+        user_message: userMessage,
+        session_id: chatSessionId,
+        user_id: userId
+      };
+    }
+
     function loadInitialSearch() {
-      if (!search_summary) {
-        appendMessage("Error: Missing summary data. Please go back and get summary first.", "bot");
+      if (!pdf_link || !summary) {
+        appendMessage("Error: Missing PDF link or summary data. Please go back and get summary first.", "bot");
         loadingMessageEl.remove();
         return;
       }
-
-      setLoadingState(true);
-      const payload = {
-        user_message: null,
-        previous_search_result: search_previous_draft || "",
-        draft: search_summary
-      };
       
-      console.log("Sending initial search request:", payload); // Add logging
+      setLoadingState(true);
+      const payload = createPayload();
 
-      fetch('http://localhost:8000/chat-search-api', {
+      fetch('https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/chat-search-api', {
         method: 'POST',
-        headers: {
+        headers: addSessionHeader({
           'Content-Type': 'application/json',
           'accept': 'application/json'
-        },
+        }),
         body: JSON.stringify(payload)
       })
       .then(response => {
-        console.log("Got response:", response.status); // Add logging
         if (!response.ok) {
           throw new Error("Server error: " + response.statusText);
         }
         return response.json();
       })
       .then(result => {
-        console.log("Got result:", result); // Add logging
-        if (result.status === "success" && result.data) {
-          const reply = result.data.chat_draft || "No reply returned.";
-          appendMessage(reply, "bot");
-          previousSearchResult = reply;
+        if (result.status === "success" && result.data && result.data.search_result) {
+          const searchText = result.data.search_result;
+          appendMessage(searchText, "bot");
+          previousSearchResult = searchText;
         } else {
-          appendMessage("Error: " + (result.message || "Unknown error occurred."), "bot");
+          appendMessage("Error: " + (result.message || "No search result available."), "bot");
         }
       })
       .catch(error => {
-        console.error("Error:", error); // Add logging
         appendMessage("Error: " + error.message, "bot");
       })
       .finally(() => {
@@ -271,26 +358,21 @@
         setLoadingState(false);
       });
     }
-    
-    // Function to send subsequent user messages.
+
     function sendChatMessage(messageText) {
       appendMessage(messageText, "user");
       
       setLoadingState(true);
       const loadingSpinner = appendLoadingSpinner();
       
-      const payload = {
-        user_message: messageText,
-        previous_search_result: previousSearchResult || "",
-        draft: search_summary
-      };
+      const payload = createPayload(messageText);
       
-      fetch('http://localhost:8000/chat-search-api', {
+      fetch('https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/chat-search-api', {
         method: 'POST',
-        headers: {
+        headers: addSessionHeader({
           'Content-Type': 'application/json',
           'accept': 'application/json'
-        },
+        }),
         body: JSON.stringify(payload)
       })
       .then(response => {
@@ -300,8 +382,8 @@
         return response.json();
       })
       .then(result => {
-        if (result.status === "success" && result.data) {
-          const reply = result.data.chat_draft || "No reply returned.";
+        if (result.status === "success" && result.data && result.data.search_result) {
+          const reply = result.data.search_result;
           appendMessage(reply, "bot");
           previousSearchResult = reply;
         } else {
@@ -316,24 +398,90 @@
         setLoadingState(false);
       });
     }
-    
-    // Event listeners for the send button and Enter key.
-    sendMessageBtn.addEventListener('click', () => {
+
+    // Add event listener for input changes to control send button state
+    userMessageInput.addEventListener('input', function() {
+      const messageText = this.value.trim();
+      sendMessageBtn.disabled = messageText === '';
+      // Optional: Add visual feedback with opacity
+      sendMessageBtn.style.opacity = messageText === '' ? '0.5' : '1';
+    });
+
+    // Update the initial state of the send button
+    sendMessageBtn.disabled = true;
+    sendMessageBtn.style.opacity = '0.5';
+
+    // Update the send button click handler to include the disabled check
+    sendMessageBtn.addEventListener('click', function() {
       const messageText = userMessageInput.value.trim();
-      if (messageText === "") return;
+      if (messageText === "" || this.disabled) return;
       sendChatMessage(messageText);
       userMessageInput.value = "";
       userMessageInput.focus();
+      // Reset button state after sending
+      this.disabled = true;
+      this.style.opacity = '0.5';
     });
-    
-    userMessageInput.addEventListener('keypress', event => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        sendMessageBtn.click();
+
+    // Clear chat button event listener.
+    clearChatBtn.addEventListener('click', function() {
+      fetch(`https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/delete-search-conversation?user_id=${userId}&session_id=${chatSessionId}`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json'
+        }
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Server error: " + response.statusText);
+        }
+        return response.json();
+      })
+      .then(result => {
+        if (result.status === "success") {
+          console.log("Chat cleared successfully.");
+          // Clear the chat UI except the first bot message.
+          const chatBubbles = chatArea.querySelectorAll('.chat-bubble');
+          chatBubbles.forEach((bubble, index) => {
+            if (index !== 0 || !bubble.classList.contains('bot-message')) {
+              bubble.remove();
+            }
+          });
+        } else {
+          console.error("Failed to clear chat:", result.message);
+        }
+      })
+      .catch(error => {
+        console.error("Error clearing chat:", error);
+      });
+    });
+
+    // Load the initial search message when the page is ready.
+    document.addEventListener('DOMContentLoaded', loadInitialSearch);
+
+    // Add logout functionality
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        const response = await fetch('https://dcd1-2409-40d6-ee-669c-941c-407e-5f0b-4792.ngrok-free.app/logout', {
+          method: 'POST',
+          headers: addSessionHeader()
+        });
+        
+        const result = await response.json();
+        if (result.status === "success") {
+          // Clear session storage and local storage
+          sessionStorage.clear();
+          localStorage.removeItem('session_id');
+          localStorage.removeItem('chat_session_id');
+          // Redirect to login page
+          window.location.href = 'login.html';
+        } else {
+          alert("Logout failed: " + result.message);
+        }
+      } catch (error) {
+        alert("Error during logout: " + error.message);
       }
     });
-    
-    document.addEventListener('DOMContentLoaded', loadInitialSearch);
   </script>
 </body>
 </html>
