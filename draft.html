@@ -227,7 +227,7 @@
 
     // Check both authentication session and chat session
     if (!sessionId || !userId) {
-        window.location.href = 'login.html';
+        window.location.href = 'index.html';
         throw new Error('No authentication session');
     }
 
@@ -329,7 +329,7 @@
       setLoadingState(true);
       const payload = createPayload();
 
-      fetch('http://184.73.131.8/get-draft', {
+      fetch('https://184.73.131.8/get-draft', {
         method: 'POST',
         headers: addSessionHeader({
           'Content-Type': 'application/json',
@@ -393,7 +393,7 @@
       
       const payload = createPayload(messageText);
       
-      fetch('http://184.73.131.8/get-draft', {
+      fetch('https://184.73.131.8/get-draft', {
         method: 'POST',
         headers: addSessionHeader({
           'Content-Type': 'application/json',
@@ -455,7 +455,7 @@
     // Clear chat button event listener.
     clearChatBtn.addEventListener('click', function() {
       // Call the delete-draft-conversation API.
-      fetch(`http://184.73.131.8/delete-draft-conversation?user_id=${userId}&session_id=${chatSessionId}`, {
+      fetch(`https://184.73.131.8/delete-draft-conversation?user_id=${userId}&session_id=${chatSessionId}`, {
         method: 'POST',
         headers: {
           'accept': 'application/json'
@@ -492,7 +492,7 @@
     // Add logout functionality
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       try {
-        const response = await fetch('http://184.73.131.8/logout', {
+        const response = await fetch('https://184.73.131.8/logout', {
           method: 'POST',
           headers: addSessionHeader()
         });
@@ -504,7 +504,7 @@
           localStorage.removeItem('session_id');
           localStorage.removeItem('chat_session_id');
           // Redirect to login page
-          window.location.href = 'login.html';
+          window.location.href = 'index.html';
         } else {
           alert("Logout failed: " + result.message);
         }
