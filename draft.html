@@ -322,8 +322,8 @@
 
     // Load the initial draft by calling the get-draft API.
     function loadInitialDraft() {
-      if (!pdf_link || !summary) {
-        appendMessage("Error: Missing PDF link or summary data. Please go back and get summary first.", "bot");
+      if (!summary) {
+        appendMessage("Error: Missing summary data. Please go back and get summary first.", "bot");
         loadingMessageEl.remove();
         return;
       }

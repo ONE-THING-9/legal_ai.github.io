@@ -318,7 +318,7 @@
     }
 
     function loadInitialSearch() {
-      if (!pdf_link || !summary) {
+      if (!summary) {
         appendMessage("Error: Missing PDF link or summary data. Please go back and get summary first.", "bot");
         loadingMessageEl.remove();
         return;

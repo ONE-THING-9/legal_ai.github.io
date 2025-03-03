@@ -208,7 +208,6 @@
         }
 
         let summaryResponse = "";
-        let pdfLinkResponse = "";
         let sessionsData = new Map(); // Store sessions with their IDs
 
         // Populate year dropdown
@@ -331,9 +330,8 @@
                     // Set the FIR number
                     document.getElementById('numberInput').value = result.data.fir;
                     
-                    // Set the summary and PDF link
+                    // Set the summary 
                     summaryResponse = result.data.summary;
-                    pdfLinkResponse = result.data.pdf_link;
                     
                     // Display the summary
                     document.getElementById('summaryContent').innerHTML = marked.parse(summaryResponse);
@@ -404,7 +402,6 @@
                     }
                     
                     summaryResponse = result.data.summary;
-                    pdfLinkResponse = result.data.pdf_link;
                     document.getElementById('summaryContent').innerHTML = marked.parse(summaryResponse);
                     document.getElementById('downloadPdf').disabled = false;
                     document.getElementById('makeDraft').disabled = false;
@@ -419,18 +416,68 @@
             }
         });
 
-        document.getElementById('downloadPdf').addEventListener('click', () => {
-            if (pdfLinkResponse) {
-                window.open(pdfLinkResponse, '_blank');
-            } else {
-                alert("No PDF link available.");
+        document.getElementById('downloadPdf').addEventListener('click', async () => {
+            try {
+                const currentSessionId = localStorage.getItem('chat_session_id');
+                if (!currentSessionId) {
+                    alert("Session ID not found. Please get FIR details first.");
+                    return;
+                }
+
+                // Show download indicator
+                document.getElementById('downloadPdf').disabled = true;
+                document.getElementById('downloadPdf').innerHTML = '<i class="bi bi-hourglass"></i> Downloading...';
+                
+                // Call the new download-fir-pdf API
+                const response = await fetch(`${config.base_url}/download-fir-pdf`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Session-ID': sessionId
+                    },
+                    body: JSON.stringify({
+                        session_id: currentSessionId,
+                        user_id: userId
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                // Create a blob from the response
+                const blob = await response.blob();
+                
+                // Create an object URL for the blob
+                const url = window.URL.createObjectURL(blob);
+                
+                // Create a temporary anchor element and trigger download
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `FIR_${currentSessionId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                // Reset button
+                document.getElementById('downloadPdf').disabled = false;
+                document.getElementById('downloadPdf').innerHTML = '<i class="bi bi-download"></i> Download PDF';
+                
+            } catch (error) {
+                console.error("Error downloading PDF:", error);
+                alert("Failed to download PDF: " + error.message);
+                document.getElementById('downloadPdf').disabled = false;
+                document.getElementById('downloadPdf').innerHTML = '<i class="bi bi-download"></i> Download PDF';
             }
         });
 
         document.getElementById('makeDraft').addEventListener('click', () => {
             // Store the current session details
             sessionStorage.setItem('draft_summary', summaryResponse);
-            sessionStorage.setItem('draft_pdf_link', pdfLinkResponse);
             // Get existing chat_session_id from localStorage
             const existingChatSessionId = localStorage.getItem('chat_session_id');
             // Store the same chat_session_id before opening draft page
@@ -440,7 +487,6 @@
 
         document.getElementById('getRelevantCase').addEventListener('click', () => {
             sessionStorage.setItem('search_summary', summaryResponse);
-            sessionStorage.setItem('search_pdf_link', pdfLinkResponse);
             sessionStorage.setItem('search_previous_draft', null);
             window.open('search.html', '_blank');
         });
