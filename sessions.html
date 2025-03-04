@@ -23,6 +23,8 @@
 
         .logo-container img {
             width: 200px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
 
         .logout-btn {
@@ -370,8 +372,16 @@
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <p class="mt-2">Processing your request...</p>
+                    <p class="mt-2" id="loadingMessage">Processing your request...</p>
                 </div>`;
+
+            // Set a timeout to update the loading message after 20 seconds
+            const loadingTimeout = setTimeout(() => {
+                const loadingMessageElement = document.getElementById('loadingMessage');
+                if (loadingMessageElement) {
+                    loadingMessageElement.textContent = "Sometimes it takes time to fetch FIR details...";
+                }
+            }, 20000);
 
             // Disable buttons
             document.getElementById('downloadPdf').disabled = true;
@@ -395,6 +405,10 @@
                     },
                     body: JSON.stringify(data)
                 });
+                
+                // Clear the timeout as we've received a response
+                clearTimeout(loadingTimeout);
+                
                 const result = await response.json();
                 if (result.status === "success" && result.data) {
                     if (result.data.session_id) {
@@ -411,6 +425,9 @@
                     document.getElementById('summaryContent').innerHTML = `<p class="text-danger">Error: ${result.message}</p>`;
                 }
             } catch (error) {
+                // Clear the timeout in case of error
+                clearTimeout(loadingTimeout);
+                
                 console.error("Error getting summary:", error);
                 document.getElementById('summaryContent').innerHTML = '<p class="text-danger">Error getting summary.</p>';
             }
